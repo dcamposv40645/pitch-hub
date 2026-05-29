@@ -3,7 +3,10 @@
   "name": "Pitch Hub",
   "version": "0.1.0",
   "description": "Real-time pitch detection for audio playing in any tab",
-  "permissions": ["tabCapture", "offscreen"],
+  "permissions": ["tabCapture", "offscreen", "activeTab", "tabs"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_icon": "icons/icon.svg"
