@@ -3,7 +3,6 @@ const noteEl = document.getElementById('note');
 const freqEl = document.getElementById('frequency');
 
 let capturing = false;
-let streamId = null;
 
 startBtn.addEventListener('click', () => {
   if (capturing) return;
@@ -19,12 +18,8 @@ startBtn.addEventListener('click', () => {
       return;
     }
 
-    streamId = res.streamId;
     capturing = true;
-
-    // stream ID is ready — audio pipeline comes next
-    console.log('got stream id:', streamId);
     startBtn.textContent = 'Listening...';
-    freqEl.textContent = 'audio captured';
+    freqEl.textContent = 'audio pipeline ready';
   });
 });
