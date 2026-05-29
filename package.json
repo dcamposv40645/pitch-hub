@@ -1,0 +1,25 @@
+{
+  "name": "pitch-hub",
+  "version": "1.0.0",
+  "description": "",
+  "main": "background.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dcamposv40645/pitch-hub.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/dcamposv40645/pitch-hub/issues"
+  },
+  "homepage": "https://github.com/dcamposv40645/pitch-hub#readme",
+  "dependencies": {
+    "essentia.js": "^0.1.3",
+    "meyda": "^5.6.3"
+  }
+}

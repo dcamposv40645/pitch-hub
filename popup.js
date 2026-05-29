@@ -1,6 +1,8 @@
 const startBtn = document.getElementById('startBtn');
-const noteEl = document.getElementById('note');
-const freqEl = document.getElementById('frequency');
+const keyRootEl = document.getElementById('keyRoot');
+const keyQualityEl = document.getElementById('keyQuality');
+const confidenceEl = document.getElementById('confidence');
+const scaleNotesEl = document.getElementById('scaleNotes');
 
 let capturing = false;
 
@@ -19,13 +21,27 @@ startBtn.addEventListener('click', () => {
     }
 
     capturing = true;
-    startBtn.textContent = 'Listening...';
+    startBtn.textContent = 'Analyzing...';
+    keyQualityEl.textContent = 'listening...';
   });
 });
 
-// results come in from the offscreen doc via background
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === 'pitchResult') {
-    console.log(msg.note, msg.frequency + 'Hz'); // UI wiring comes next
-  }
+  if (msg.type !== 'keyResult') return;
+
+  // split "F Major" → root="F", quality="Major"
+  const parts = msg.name.split(' ');
+  keyRootEl.textContent = parts[0];
+  keyQualityEl.textContent = parts[1];
+
+  confidenceEl.className = `confidence ${msg.confidence}`;
+  confidenceEl.textContent = msg.confidence === 'low' ? 'early guess — still listening'
+    : msg.confidence === 'medium' ? 'getting confident...'
+    : 'confident';
+
+  scaleNotesEl.innerHTML = msg.chords
+    .map(c => `<span class="note-pill">${c}</span>`)
+    .join('');
+
+  startBtn.textContent = 'Listening...';
 });

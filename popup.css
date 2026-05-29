@@ -37,27 +37,76 @@ h1 {
   letter-spacing: 0.02em;
 }
 
-.note-display {
+.key-display {
   background: #1a1a2e;
   border: 1px solid #2d2d4e;
   border-radius: 12px;
-  padding: 28px 20px;
+  padding: 20px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
 }
 
-.note {
+.key-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #475569;
+}
+
+.key-root {
   font-size: 64px;
   font-weight: 700;
   color: #7c3aed;
   line-height: 1;
   letter-spacing: -2px;
-  margin-bottom: 10px;
 }
 
-.frequency {
-  font-size: 15px;
+.key-quality {
+  font-size: 13px;
+  font-weight: 500;
+  color: #818cf8;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  min-height: 18px;
+}
+
+.confidence {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  min-height: 16px;
+}
+.confidence.low  { color: #64748b; }
+.confidence.medium { color: #a78bfa; }
+.confidence.high { color: #34d399; }
+
+.chord-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   color: #475569;
-  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+}
+
+.scale-notes {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  min-height: 24px;
+}
+
+.note-pill {
+  background: #0f0f1a;
+  border: 1px solid #3730a3;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #818cf8;
 }
 
 .btn {
@@ -73,10 +122,5 @@ h1 {
   transition: background 0.15s;
 }
 
-.btn:hover {
-  background: #6d28d9;
-}
-
-.btn:active {
-  background: #5b21b6;
-}
+.btn:hover { background: #6d28d9; }
+.btn:active { background: #5b21b6; }
