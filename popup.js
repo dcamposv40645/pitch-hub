@@ -20,6 +20,12 @@ startBtn.addEventListener('click', () => {
 
     capturing = true;
     startBtn.textContent = 'Listening...';
-    freqEl.textContent = 'audio pipeline ready';
   });
+});
+
+// results come in from the offscreen doc via background
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'pitchResult') {
+    console.log(msg.note, msg.frequency + 'Hz'); // UI wiring comes next
+  }
 });
