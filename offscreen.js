@@ -1,6 +1,7 @@
 let audioCtx = null;
 let analyser = null;
 let source = null;
+let mode = 'hpcp';
 
 const KS_MAJOR = [7.5, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 3.5, 2.39, 3.66, 2.29, 2.88];
 const KS_MINOR = [7.5, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 3.5, 3.98, 2.69, 3.34, 3.17];
@@ -33,15 +34,105 @@ const KEY_INFO = [
   { name: 'B Minor',  chords: ['Bm','C#m','D','Em','F#7','G','A'] },
 ];
 
+// handles enharmonic equivalents between Essentia output and KEY_INFO names
+const ENHARMONIC = { 'C#': 'Db', 'D#': 'Eb', 'G#': 'Ab', 'A#': 'Bb', 'Db': 'C#', 'Eb': 'D#', 'Ab': 'G#', 'Bb': 'A#' };
+function findKeyInfo(key, scale) {
+  const scaleName = scale.charAt(0).toUpperCase() + scale.slice(1);
+  let info = KEY_INFO.find(k => k.name === `${key} ${scaleName}`);
+  if (!info && ENHARMONIC[key]) {
+    info = KEY_INFO.find(k => k.name === `${ENHARMONIC[key]} ${scaleName}`);
+  }
+  return info;
+}
+
+// --- HPCP engine state ---
 const chromaSum = new Float64Array(12);
 let frameCount = 0;
 const keyVotes = [];
 
+// --- Essentia engine state ---
+let essentiaReady = false;
+let essentiaProcessing = false;
+const essentiaVotes = [];
+const essentiaFrame = document.getElementById('essentiaFrame');
+
+window.addEventListener('message', (e) => {
+  if (e.data.type === 'essentiaReady') {
+    essentiaReady = true;
+  } else if (e.data.type === 'essentiaKey') {
+    essentiaProcessing = false;
+    handleEssentiaKey(e.data.key, e.data.scale, e.data.strength);
+  }
+});
+
+// fetch Essentia files (we have same-origin access) and push them into the
+// null-origin sandbox as ArrayBuffers so it never needs to fetch anything itself
+if (essentiaFrame) {
+  essentiaFrame.addEventListener('load', async () => {
+    try {
+      const get = (path) => fetch(chrome.runtime.getURL(path)).then(r => r.arrayBuffer());
+      const [coreJs, wasmJs, wasmBinary] = await Promise.all([
+        get('lib/essentia-core.umd.min.js'),
+        get('lib/essentia-wasm.web.js'),
+        get('lib/essentia-wasm.web.wasm'),
+      ]);
+      essentiaFrame.contentWindow.postMessage(
+        { type: 'initEssentia', coreJs, wasmJs, wasmBinary },
+        '*',
+        [coreJs, wasmJs, wasmBinary]
+      );
+    } catch (err) {
+      console.error('Essentia prefetch failed:', err);
+    }
+  });
+}
+
+function handleEssentiaKey(key, scale, strength) {
+  if (strength < 0.1) return;
+
+  const name = `${key} ${scale.charAt(0).toUpperCase() + scale.slice(1)}`;
+  essentiaVotes.push(name);
+  if (essentiaVotes.length > 10) essentiaVotes.shift();
+  if (essentiaVotes.length < 3) return;
+
+  const counts = {};
+  for (const n of essentiaVotes) counts[n] = (counts[n] || 0) + 1;
+  const [winner, topCount] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  const ratio = topCount / essentiaVotes.length;
+
+  const confidence = essentiaVotes.length < 5 ? 'low'
+    : ratio >= 0.7 ? 'high' : 'medium';
+
+  const [wKey, wScale] = winner.split(' ');
+  const info = findKeyInfo(wKey, wScale.toLowerCase());
+  chrome.runtime.sendMessage({
+    type: 'keyResult',
+    name: winner,
+    chords: info ? info.chords : [],
+    confidence
+  });
+}
+
+function resetState() {
+  chromaSum.fill(0);
+  frameCount = 0;
+  keyVotes.length = 0;
+  essentiaVotes.length = 0;
+  essentiaProcessing = false;
+}
+
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === 'initAudio') setupAudio(msg.streamId);
+  if (msg.type === 'initAudio') {
+    mode = msg.mode || 'hpcp';
+    setupAudio(msg.streamId);
+  } else if (msg.type === 'setMode') {
+    mode = msg.mode;
+    resetState();
+  }
 });
 
 async function setupAudio(streamId) {
+  resetState();
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -64,7 +155,6 @@ async function setupAudio(streamId) {
     source.connect(audioCtx.destination);
 
     startAnalysis();
-    console.log('audio ready, rate:', audioCtx.sampleRate);
   } catch (err) {
     console.error('audio setup failed:', err);
   }
@@ -72,13 +162,28 @@ async function setupAudio(streamId) {
 
 function startAnalysis() {
   const freqData = new Float32Array(analyser.frequencyBinCount);
+  const timeData = new Float32Array(analyser.fftSize);
   const sampleRate = audioCtx.sampleRate;
   const fftSize = analyser.fftSize;
 
   setInterval(() => {
+    if (mode === 'essentia') {
+      if (!essentiaReady || essentiaProcessing || !essentiaFrame?.contentWindow) return;
+
+      analyser.getFloatTimeDomainData(timeData);
+      const buffer = timeData.buffer.slice(0);
+      essentiaProcessing = true;
+      essentiaFrame.contentWindow.postMessage(
+        { type: 'analyzeFrame', buffer, frameSize: fftSize, sampleRate },
+        '*',
+        [buffer]
+      );
+      return;
+    }
+
+    // --- HPCP engine ---
     analyser.getFloatFrequencyData(freqData);
 
-    // convert dB → linear magnitudes for HPCP
     const magnitudes = new Float32Array(freqData.length);
     for (let i = 0; i < freqData.length; i++) {
       magnitudes[i] = freqData[i] < -90 ? 0 : Math.pow(10, freqData[i] / 20);
@@ -90,13 +195,6 @@ function startAnalysis() {
 
     for (let i = 0; i < 12; i++) chromaSum[i] += hpcp[i] / energy;
     frameCount++;
-
-    if (frameCount % 20 === 0) {
-      const sorted = Array.from(chromaSum)
-        .map((v, i) => ({ v, n: NOTE[i] }))
-        .sort((a, b) => b.v - a.v);
-      console.log(`frame ${frameCount} | top 4:`, sorted.slice(0, 4).map(x => `${x.n}:${x.v.toFixed(1)}`).join(' '));
-    }
 
     if (frameCount >= 60 && frameCount % 30 === 0) {
       const idx = detectKey(chromaSum);

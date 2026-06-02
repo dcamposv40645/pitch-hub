@@ -1,11 +1,38 @@
+let captureState = {
+  active: false,
+  mode: 'hpcp',
+  lastResult: null
+};
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'startCapture') {
-    startCapture(sendResponse);
-    return true; // keeps the message channel open for the async response
+    startCapture(msg.mode || 'hpcp', sendResponse);
+    return true;
+  }
+
+  if (msg.type === 'stopCapture') {
+    captureState.active = false;
+    captureState.lastResult = null;
+    chrome.offscreen.closeDocument()
+      .catch(() => {})
+      .then(() => sendResponse({ ok: true }));
+    return true;
+  }
+
+  if (msg.type === 'getState') {
+    chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] }).then(ctxs => {
+      if (ctxs.length === 0) captureState.active = false;
+      sendResponse({ ...captureState });
+    });
+    return true;
+  }
+
+  if (msg.type === 'keyResult') {
+    captureState.lastResult = { name: msg.name, chords: msg.chords, confidence: msg.confidence };
   }
 });
 
-async function startCapture(sendResponse) {
+async function startCapture(mode, sendResponse) {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
   if (!tab) {
@@ -24,14 +51,16 @@ async function startCapture(sendResponse) {
       if (existing.length === 0) {
         await chrome.offscreen.createDocument({
           url: 'offscreen.html',
-          reasons: ['USER_MEDIA'],
+          reasons: ['USER_MEDIA', 'IFRAME_SCRIPTING'],
           justification: 'process tab audio stream for pitch detection'
         });
       }
 
       // not sure why this needs a delay but it breaks without it
       await new Promise(r => setTimeout(r, 50));
-      chrome.runtime.sendMessage({ type: 'initAudio', streamId });
+      captureState.active = true;
+      captureState.mode = mode;
+      chrome.runtime.sendMessage({ type: 'initAudio', streamId, mode });
       sendResponse({ ok: true });
     } catch (err) {
       sendResponse({ error: err.message });
