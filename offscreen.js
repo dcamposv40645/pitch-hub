@@ -36,11 +36,10 @@ const KEY_INFO = [
 
 // --- Krumhansl-Schmuckler key detection ---
 
-// Perceptual key profiles from Krumhansl & Schmuckler (1990).
-// The tonic note scores highest, then the 5th, 3rd, etc. — so even if the V chord
-// is loud, the unique notes of the I chord (major 3rd, 4th) push the tonic key ahead.
-const KS_MAJOR = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
-const KS_MINOR = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+// Temperley (2007) key profiles — weight the 3rd scale degree more heavily than K-S,
+// which gives a stronger major/minor distinction (B vs Bb for G major/minor).
+const KS_MAJOR = [5.0, 2.0, 3.5, 2.0, 4.5, 4.0, 2.0, 4.5, 2.0, 3.5, 1.5, 4.0];
+const KS_MINOR = [5.0, 2.0, 3.5, 4.5, 2.0, 4.0, 2.0, 4.5, 3.5, 2.0, 1.5, 4.0];
 
 const hpcpAccum = new Float32Array(12);
 let hpcpFrameCount = 0;
@@ -60,37 +59,26 @@ function keyFromHPCP(hpcp) {
   const accumulated = hpcpFrameCount - 10;
   if (accumulated % 200 !== 0) return null; // emit at ~30s, ~60s, ~90s...
 
-  const mean = hpcpAccum.reduce((s, v) => s + v, 0) / 12;
-  let xSS = 0;
-  for (let i = 0; i < 12; i++) xSS += (hpcpAccum[i] - mean) ** 2;
-  const xStd = Math.sqrt(xSS);
-  if (xStd < 0.001) return null; // silence
+  const total = hpcpAccum.reduce((s, v) => s + v, 0);
+  if (total < 0.001) return null;
 
-  let best = { root: 0, scale: 'major', score: -1 };
-  const allScores = [];
+  // Weighted dot product with mean-centered profiles.
+  // Absent diatonic notes contribute 0 (not penalized like in Pearson).
+  // Present chromatic notes subtract (profile value below mean → negative weight).
+  let best = { root: 0, scale: 'major', score: -Infinity };
 
   for (let r = 0; r < 12; r++) {
     for (const [prof, scale] of [[KS_MAJOR, 'major'], [KS_MINOR, 'minor']]) {
-      const yMean = prof.reduce((s, v) => s + v, 0) / 12;
-      let ySS = 0, num = 0;
+      const profMean = prof.reduce((s, v) => s + v, 0) / 12;
+      let score = 0;
       for (let i = 0; i < 12; i++) {
-        const dx = hpcpAccum[i] - mean;
-        const dy = prof[(i - r + 12) % 12] - yMean;
-        num += dx * dy;
-        ySS += dy * dy;
+        score += (hpcpAccum[i] / total) * (prof[(i - r + 12) % 12] - profMean);
       }
-      const corr = num / (xStd * Math.sqrt(ySS));
-      allScores.push({ r, scale, corr });
-      if (corr > best.score) best = { root: r, scale, score: corr };
+      if (score > best.score) best = { root: r, scale, score };
     }
   }
 
-  const NOTE_NAMES = ['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
-  allScores.sort((a, b) => b.corr - a.corr);
-  console.log('[ks] top 3:', allScores.slice(0, 3).map(s => `${NOTE_NAMES[s.r]} ${s.scale} ${s.corr.toFixed(3)}`).join(' | '));
-  console.log('[ks] accum:', Array.from(hpcpAccum).map((v, i) => NOTE_NAMES[i] + ':' + v.toFixed(1)).join(' '));
-
-  return best.score > 0.45 ? best : null;
+  return best.score > 0.03 ? best : null;
 }
 
 function emitKeyResult(key) {
@@ -98,7 +86,7 @@ function emitKeyResult(key) {
   const scaleName = key.scale === 'major' ? 'Major' : 'Minor';
   const keyName = `${noteName} ${scaleName}`;
   const info = KEY_INFO.find(k => k.name === keyName);
-  const confidence = key.score > 0.8 ? 'high' : key.score > 0.65 ? 'medium' : 'low';
+  const confidence = key.score > 0.15 ? 'high' : key.score > 0.08 ? 'medium' : 'low';
 
   chrome.runtime.sendMessage({
     type: 'keyResult',
@@ -171,8 +159,11 @@ async function setupAudio(streamId) {
     audioCtx = new AudioContext();
     await audioCtx.resume();
 
+    const streamSR = stream.getAudioTracks()[0]?.getSettings()?.sampleRate;
+    console.log(`stream SR: ${streamSR}, context SR: ${audioCtx.sampleRate}`);
+
     analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 8192;
+    analyser.fftSize = 16384;
 
     source = audioCtx.createMediaStreamSource(stream);
     source.connect(analyser);
