@@ -44,28 +44,23 @@ const KS_MINOR = [5.0, 2.0, 3.5, 4.5, 2.0, 4.0, 2.0, 4.5, 3.5, 2.0, 1.5, 4.0];
 const hpcpAccum = new Float32Array(12);
 let hpcpFrameCount = 0;
 
-// Accumulate HPCP for ~30 seconds, then Pearson-correlate against all 24 key profiles.
-// Emits one result every 200 good frames (~30s) so the display is stable, not flickering.
 function keyFromHPCP(hpcp) {
   hpcpFrameCount++;
-  if (hpcpFrameCount <= 10) return null; // let audio pipeline settle
+  if (hpcpFrameCount <= 10) return null;
 
   const energy = hpcp.reduce((s, v) => s + v, 0);
-  if (energy < 0.05) return null; // skip silence and low-energy frames
+  if (energy < 0.05) return null;
 
-  // normalize so loud frames don't outweigh quiet ones
   for (let i = 0; i < 12; i++) hpcpAccum[i] = hpcpAccum[i] * 0.999 + hpcp[i] / energy;
 
   const accumulated = hpcpFrameCount - 10;
-  if (accumulated % 200 !== 0) return null; // emit at ~30s, ~60s, ~90s...
+  if (accumulated % 200 !== 0) return null;
 
   const total = hpcpAccum.reduce((s, v) => s + v, 0);
   if (total < 0.001) return null;
 
-  // Weighted dot product with mean-centered profiles.
-  // Absent diatonic notes contribute 0 (not penalized like in Pearson).
-  // Present chromatic notes subtract (profile value below mean → negative weight).
   let best = { root: 0, scale: 'major', score: -Infinity };
+  let secondScore = -Infinity;
 
   for (let r = 0; r < 12; r++) {
     for (const [prof, scale] of [[KS_MAJOR, 'major'], [KS_MINOR, 'minor']]) {
@@ -74,11 +69,28 @@ function keyFromHPCP(hpcp) {
       for (let i = 0; i < 12; i++) {
         score += (hpcpAccum[i] / total) * (prof[(i - r + 12) % 12] - profMean);
       }
-      if (score > best.score) best = { root: r, scale, score };
+      if (score > best.score) {
+        secondScore = best.score;
+        best = { root: r, scale, score };
+      } else if (score > secondScore) {
+        secondScore = score;
+      }
     }
   }
 
-  return best.score > 0.03 ? best : null;
+  const margin = best.score - secondScore;
+  console.log(`[ks] best: ${NOTE_MAJOR[best.root]} ${best.scale} ${best.score.toFixed(3)} | margin: ${margin.toFixed(3)}`);
+
+  // Require a clear winner — thin margins mean the algorithm is guessing
+  if (best.score < 0.03 || margin < 0.01) return null;
+
+  // Results before 400 frames (~60s) are preliminary; confidence uses score after that
+  const confidence = accumulated < 400 ? 'low'
+    : best.score > 0.15 ? 'high'
+    : best.score > 0.08 ? 'medium'
+    : 'low';
+
+  return { ...best, confidence };
 }
 
 function emitKeyResult(key) {
@@ -86,13 +98,14 @@ function emitKeyResult(key) {
   const scaleName = key.scale === 'major' ? 'Major' : 'Minor';
   const keyName = `${noteName} ${scaleName}`;
   const info = KEY_INFO.find(k => k.name === keyName);
-  const confidence = key.score > 0.15 ? 'high' : key.score > 0.08 ? 'medium' : 'low';
 
   chrome.runtime.sendMessage({
     type: 'keyResult',
     name: keyName,
+    root: key.root,
+    scale: key.scale,
     chords: info ? info.chords : [],
-    confidence
+    confidence: key.confidence
   });
 }
 
@@ -208,26 +221,26 @@ function startAnalysis() {
   }, 150);
 }
 
-// Chromagram with fractional pitch class assignment.
-// Instead of hard-rounding each bin to one pitch class, we split its energy
-// between the two nearest semitones proportionally — a bin halfway between G and Ab
-// contributes 50% to each rather than 100% to whichever it rounds to.
-// This eliminates the leakage that was inflating Ab/Eb in G major songs.
 function computeHPCP(magnitudes, sampleRate, fftSize) {
   const hpcp = new Float32Array(12);
   const binHz = sampleRate / fftSize;
 
   for (let bin = 1; bin < magnitudes.length; bin++) {
     const freq = bin * binHz;
-    if (freq < 80 || freq > 2000) continue;
+    if (freq < 50 || freq > 2500) continue;
     const mag = magnitudes[bin];
     if (mag < 0.001) continue;
+
+    // Bass frequencies carry the chord root and are more tonally informative.
+    // Weight them up to ~3x relative to upper midrange.
+    const bassWeight = 1 + 2 * Math.exp(-freq / 300);
 
     const midi = 12 * Math.log2(freq / 440) + 69;
     const lo = Math.floor(midi);
     const frac = midi - lo;
-    hpcp[((lo % 12) + 12) % 12]     += mag * (1 - frac);
-    hpcp[(((lo + 1) % 12) + 12) % 12] += mag * frac;
+    const weighted = mag * bassWeight;
+    hpcp[((lo % 12) + 12) % 12]      += weighted * (1 - frac);
+    hpcp[(((lo + 1) % 12) + 12) % 12] += weighted * frac;
   }
 
   return hpcp;

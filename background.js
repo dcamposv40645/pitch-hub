@@ -28,7 +28,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'keyResult') {
-    captureState.lastResult = { name: msg.name, chords: msg.chords, confidence: msg.confidence };
+    captureState.lastResult = { name: msg.name, root: msg.root, scale: msg.scale, chords: msg.chords, confidence: msg.confidence };
   }
 });
 

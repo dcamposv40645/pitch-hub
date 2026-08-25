@@ -10,13 +10,39 @@
     <header>
       <span class="logo-icon">♪</span>
       <h1>Pitch Hub</h1>
+      <button class="btn-settings" id="settingsBtn" title="Settings">⚙</button>
     </header>
+
+    <div class="settings-panel" id="settingsPanel">
+      <div class="setting-row">
+        <span class="setting-label">Note names</span>
+        <div class="note-style-toggle">
+          <button class="note-style-opt" id="optEnglish">A B C</button>
+          <button class="note-style-opt" id="optSolfege">Do Re Mi</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">Relative key</span>
+        <label class="switch">
+          <input type="checkbox" id="toggleRelative">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">Camelot number</span>
+        <label class="switch">
+          <input type="checkbox" id="toggleCamelot">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
 
     <div class="key-display">
       <div class="key-label">Detected Key</div>
       <div class="key-root" id="keyRoot">--</div>
       <div class="key-quality" id="keyQuality"></div>
       <div class="confidence" id="confidence"></div>
+      <div class="key-meta" id="keyMeta"></div>
       <div class="chord-label">Chords</div>
       <div class="scale-notes" id="scaleNotes"></div>
     </div>
